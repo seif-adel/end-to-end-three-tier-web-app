@@ -1,0 +1,22 @@
+services:
+  backend:
+    build:
+      context: ./src/backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: electrodb
+      DB_USER: electro
+      DB_PASSWORD: electro
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: electrodb
+      POSTGRES_USER: electro
+      POSTGRES_PASSWORD: electro
+    ports:
+      - "5432:5432"
