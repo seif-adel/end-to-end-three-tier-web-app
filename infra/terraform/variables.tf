@@ -69,3 +69,9 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+variable "allow_public_frontend" {
+  description = "Whether to attach a public-read S3 bucket policy for the frontend website"
+  type        = bool
+  default     = false
+}

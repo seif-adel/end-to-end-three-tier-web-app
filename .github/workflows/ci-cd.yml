@@ -35,15 +35,9 @@ jobs:
         env:
           PYTHONPATH: src/backend
         run: pytest src/backend/tests -q
-
-      - name: Debug GitHub context
-        run: |
-          echo "repository=${{ github.repository }}"
-          echo "ref=${{ github.ref }}"
-          echo "event=${{ github.event_name }}"
         
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
@@ -57,10 +51,36 @@ jobs:
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Ensure ECR repo exists
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init (remote state)
         run: |
-          aws ecr describe-repositories --repository-names "$REPO_NAME" >/dev/null 2>&1 \
-            || aws ecr create-repository --repository-name "$REPO_NAME"
+          terraform -chdir=${{ env.TF_WORKING_DIR }} init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ secrets.TF_STATE_KEY }}" \
+            -backend-config="region=${{ secrets.TF_STATE_REGION }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform validate
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
+
+      - name: Import existing ECR repo into state (if needed)
+        run: |
+          if aws ecr describe-repositories --repository-names "$REPO_NAME" >/dev/null 2>&1; then
+            terraform -chdir=${{ env.TF_WORKING_DIR }} state show aws_ecr_repository.backend >/dev/null 2>&1 \
+              || terraform -chdir=${{ env.TF_WORKING_DIR }} import aws_ecr_repository.backend "$REPO_NAME"
+          fi
+
+      - name: Terraform apply (bootstrap ECR)
+        env:
+          TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+          TF_VAR_region: ${{ secrets.AWS_REGION }}
+          TF_VAR_allow_public_frontend: true
+        run: |
+          terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve -target=aws_ecr_repository.backend -var "image_tag=bootstrap"
 
       - name: Build and push Docker image
         env:
@@ -68,17 +88,8 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           ECR_URI="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_NAME"
-          docker build -t "$ECR_URI:$IMAGE_TAG" src/backend
+          docker build -f src/backend/Dockerfile -t "$ECR_URI:$IMAGE_TAG" src/backend
           docker push "$ECR_URI:$IMAGE_TAG"
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform init
-        run: terraform -chdir=${{ env.TF_WORKING_DIR }} init
-
-      - name: Terraform validate
-        run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
 
       - name: Terraform apply
         env:
@@ -86,5 +97,6 @@ jobs:
           TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
           TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
           TF_VAR_region: ${{ secrets.AWS_REGION }}
+          TF_VAR_allow_public_frontend: true
         run: |
           terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve -var "image_tag=$IMAGE_TAG"

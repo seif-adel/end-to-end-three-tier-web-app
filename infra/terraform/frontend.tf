@@ -42,6 +42,7 @@ resource "aws_s3_bucket_public_access_block" "frontend" {
 }
 
 resource "aws_s3_bucket_policy" "frontend_public_read" {
+  count  = var.allow_public_frontend ? 1 : 0
   bucket = aws_s3_bucket.frontend.id
   policy = jsonencode({
     Version = "2012-10-17"
@@ -64,7 +65,6 @@ resource "aws_s3_object" "frontend_files" {
     "index.html"        = "${path.root}/../../frontend/index.html"
     "styles.css"        = "${path.root}/../../frontend/styles.css"
     "app.js"            = "${path.root}/../../frontend/app.js"
-    "config.js"         = "${path.root}/../../frontend/config.js"
     "config.example.js" = "${path.root}/../../frontend/config.example.js"
   }
 
@@ -76,7 +76,17 @@ resource "aws_s3_object" "frontend_files" {
     "index.html"        = "text/html"
     "styles.css"        = "text/css"
     "app.js"            = "application/javascript"
-    "config.js"         = "application/javascript"
     "config.example.js" = "application/javascript"
   }, each.key, "text/plain")
+}
+
+resource "aws_s3_object" "frontend_config" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "config.js"
+  content_type = "application/javascript"
+  content = <<-EOT
+window.APP_CONFIG = {
+  apiBaseUrl: "http://${aws_lb.app.dns_name}"
+};
+EOT
 }
