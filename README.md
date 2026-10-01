@@ -210,7 +210,7 @@ For production, I would improve scale, cost control, and availability in these w
 
 ## 11. Cleanup
 
-Destroy cloud resources when done:
+Destroy cloud resources when done
 ```powershell
 terraform -chdir=infra/terraform destroy -auto-approve
 ```
